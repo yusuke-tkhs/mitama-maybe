@@ -6,7 +6,9 @@
 #include <utility>
 #include <memory>
 #include <functional>
+#ifdef WITH_BOOST_OPTIONAL
 #include <boost/optional.hpp>
+#endif
 
 namespace mitama::mitamagic {
 template <class, class=void> struct is_pointer_like: std::false_type {};
@@ -35,10 +37,12 @@ template <class T>
 struct element_type<std::optional<T>> {
     using type = T;
 };
+#ifdef WITH_BOOST_OPTIONAL
 template <class T>
 struct element_type<boost::optional<T>> {
     using type = T;
 };
+#endif
 template <class T>
 struct element_type<T*> {
     using type = T;
@@ -128,8 +132,18 @@ class maybe {
     auto operator>>(F&& f) const& {
         static_assert(std::is_invocable_v<F&&, T&>,
             "specified functor is not invocable.");
+#ifdef WITH_BOOST_OPTIONAL
+        using option = boost::optional<std::invoke_result_t<F&&, T&>>;
+        auto Some = [](auto&& v){ return option(std::forward<decltype(v)>(v)); };
+        auto None = boost::none;
+#else
+        using option = std::optional<std::remove_reference_t<std::invoke_result_t<F&&, T&>>>;
+        auto Some = [](auto&& v){ return option(std::forward<decltype(v)>(v)); };
+        auto None = std::nullopt;
+#endif
+        using result_type = std::remove_reference_t<std::invoke_result_t<F&&, T&>>;
+
         if constexpr (std::is_constructible_v<std::invoke_result_t<F&&, T&>, decltype(nullptr)>) {
-            using result_type = std::invoke_result_t<F&&, T&>;
             if ( storage_->is_ok() ) {
                 return maybe<typename mitamagic::element_type<std::decay_t<result_type>>::type>{std::invoke(std::forward<F>(f), storage_->deref())};
             }
@@ -137,13 +151,20 @@ class maybe {
                 return maybe<typename mitamagic::element_type<std::decay_t<result_type>>::type>{result_type{nullptr}};
             }
         }
-        else {
-            using result_type = std::invoke_result_t<F&&, T&>;
+        else if constexpr (std::is_constructible_v<std::invoke_result_t<F&&, T&>, decltype(None)>) {
             if ( storage_->is_ok() ) {
-                return maybe<result_type>{boost::optional<result_type>{std::invoke(std::forward<F>(f), storage_->deref())}};
+                return maybe<typename mitamagic::element_type<std::decay_t<result_type>>::type>{std::invoke(std::forward<F>(f), storage_->deref())};
             }
             else {
-                return maybe<result_type>{boost::optional<result_type>{boost::none}};
+                return maybe<typename mitamagic::element_type<std::decay_t<result_type>>::type>{None};
+            }
+        }
+        else {
+            if ( storage_->is_ok() ) {
+                return maybe<result_type>{Some(std::invoke(std::forward<F>(f), storage_->deref()))};
+            }
+            else {
+                return maybe<result_type>{option{None}};
             }
         }
     }
