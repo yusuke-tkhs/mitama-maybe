@@ -22,30 +22,12 @@ struct is_pointer_like<PointerLike,
     : std::true_type
 {};
 
-template <class>
+template <class, class=void>
 struct element_type;
 
 template <class T>
-struct element_type<std::shared_ptr<T>> {
-    using type = T;
-};
-template <class T>
-struct element_type<std::unique_ptr<T>> {
-    using type = T;
-};
-template <class T>
-struct element_type<std::optional<T>> {
-    using type = T;
-};
-#ifdef WITH_BOOST_OPTIONAL
-template <class T>
-struct element_type<boost::optional<T>> {
-    using type = T;
-};
-#endif
-template <class T>
-struct element_type<T*> {
-    using type = T;
+struct element_type<T, std::enable_if_t<std::disjunction_v<is_pointer_like<T>, std::is_pointer<T>>>> {
+    using type = std::remove_reference_t<decltype(*std::declval<T>())>;
 };
 }
 
